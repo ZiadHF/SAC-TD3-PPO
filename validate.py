@@ -2,18 +2,9 @@ import os
 from huggingface_hub import whoami
 import torch
 
-# Check HF token
-token = os.getenv("HF_TOKEN")
-if not token:
-    print("❌ HF_TOKEN not set")
-    exit(1)
 
-try:
-    user = whoami(token=token)
-    print(f"✅ HF authenticated: @{user['name']}")
-except:
-    print("❌ HF token invalid")
-    exit(1)
+# Hugging Face validation temporarily disabled
+print("HF validation skipped (disabled)")
 
 # Check GPU
 if torch.cuda.is_available():

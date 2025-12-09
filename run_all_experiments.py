@@ -173,13 +173,13 @@ def run_experiment(exp: Dict[str, Any], log_file) -> bool:
             
             # Check for errors in output
             if "CUDA out of memory" in line:
-                print(f"❌ OOM detected in {algo}_{env} - reducing batch size", file=log_file)
+                print(f"OOM detected in {algo}_{env} - reducing batch size", file=log_file)
                 process.terminate()
                 return False
             
             # Check timeout
             if time.time() - start_time > max_runtime:
-                print(f"⏱️  Timeout reached for {algo}_{env}", file=log_file)
+                print(f"Timeout reached for {algo}_{env}", file=log_file)
                 process.terminate()
                 return False
         
@@ -190,14 +190,14 @@ def run_experiment(exp: Dict[str, Any], log_file) -> bool:
             with open(completion_marker, 'w') as f:
                 f.write(f"Completed at {datetime.now()}\n")
             
-            print(f"✅ SUCCESS: {algo}_{env}", file=log_file)
+            print(f"SUCCESS: {algo}_{env}", file=log_file)
             return True
         else:
-            print(f"❌ FAILED: {algo}_{env} (exit code {process.returncode})", file=log_file)
+            print(f"FAILED: {algo}_{env} (exit code {process.returncode})", file=log_file)
             return False
             
     except Exception as e:
-        print(f"💥 CRASH in {algo}_{env}: {e}", file=log_file)
+        print(f"CRASH in {algo}_{env}: {e}", file=log_file)
         traceback.print_exc(file=log_file)
         return False
 
@@ -233,7 +233,7 @@ class MasterRunner:
     def run_all(self, resume=False):
         """Run all experiments sequentially"""
         self.log("="*70)
-        self.log("🤖 MASTER RUNNER STARTED")
+        self.log("MASTER RUNNER STARTED")
         self.log("="*70)
         self.log(f"Total experiments: {len(EXPERIMENTS)}")
         self.log(f"Resume mode: {resume}")
@@ -247,15 +247,15 @@ class MasterRunner:
             
             # Skip if already completed and not resuming
             if self.status.get(exp_key) == "completed" and not resume:
-                self.log(f"⏭️  Skipping completed: {exp_key}")
+                self.log(f"Skipping completed: {exp_key}")
                 continue
             
             # Skip if failed and not resuming
             if self.status.get(exp_key) == "failed" and not resume:
-                self.log(f"⏭️  Skipping failed: {exp_key}")
+                self.log(f"Skipping failed: {exp_key}")
                 continue
             
-            self.log(f"\n📊 Experiment {i}/{len(experiments)}: {exp_key}")
+            self.log(f"\nExperiment {i}/{len(experiments)}: {exp_key}")
             self.status[exp_key] = "running"
             self.save_status()
             
@@ -264,10 +264,10 @@ class MasterRunner:
             
             if success:
                 self.status[exp_key] = "completed"
-                self.log(f"✅ Marked as completed: {exp_key}")
+                self.log(f"Marked as completed: {exp_key}")
             else:
                 self.status[exp_key] = "failed"
-                self.log(f"❌ Marked as failed: {exp_key}")
+                self.log(f"Marked as failed: {exp_key}")
             
             self.save_status()
             
@@ -282,22 +282,22 @@ class MasterRunner:
         # Generate final report
         self.generate_report()
         
-        self.log("\n🎉 ALL EXPERIMENTS FINISHED!")
+        self.log("\nALL EXPERIMENTS FINISHED!")
         self.master_log.close()
     
     def print_summary(self):
         """Print final status summary"""
         self.log("\n" + "="*70)
-        self.log("📋 FINAL STATUS SUMMARY")
+        self.log("FINAL STATUS SUMMARY")
         self.log("="*70)
         
         completed = sum(1 for s in self.status.values() if s == "completed")
         failed = sum(1 for s in self.status.values() if s == "failed")
         pending = sum(1 for s in self.status.values() if s == "pending")
         
-        self.log(f"✅ Completed: {completed}/{len(EXPERIMENTS)}")
-        self.log(f"❌ Failed: {failed}/{len(EXPERIMENTS)}")
-        self.log(f"⏳ Pending: {pending}/{len(EXPERIMENTS)}")
+        self.log(f"Completed: {completed}/{len(EXPERIMENTS)}")
+        self.log(f"Failed: {failed}/{len(EXPERIMENTS)}")
+        self.log(f"Pending: {pending}/{len(EXPERIMENTS)}")
         
         if failed > 0:
             self.log("\nFailed experiments:")
@@ -309,7 +309,7 @@ class MasterRunner:
     
     def generate_report(self):
         """Generate a final report from wandb data"""
-        self.log("\n📄 Generating final report...")
+        self.log("\nGenerating final report...")
         
         try:
             import wandb
@@ -339,10 +339,10 @@ class MasterRunner:
                     f.write(f"- **{row['algorithm']}** on **{row['environment']}**: "
                            f"{row['best_score']} ([W&B]({row['wandb_url']}))\n")
             
-            self.log("✅ Report saved to logs/final_report.md")
+            self.log("Report saved to logs/final_report.md")
             
         except Exception as e:
-            self.log(f"⚠️  Could not generate report: {e}")
+            self.log(f"Could not generate report: {e}")
 
 # ==================== MAIN ENTRY POINT ====================
 
@@ -360,7 +360,7 @@ def main():
     
     # Phase 1: Validate environment
     if not check_environment():
-        print("\n❌ Environment validation failed. Fix issues and retry.")
+        print("\nEnvironment validation failed. Fix issues and retry.")
         exit(1)
     
     # Phase 2: Setup HF
@@ -374,8 +374,8 @@ def main():
     runner = MasterRunner()
     runner.run_all(resume=args.resume)
     
-    print("\n🎉 Master runner finished! Check logs/master.log for details.")
-    print("📄 Final report: logs/final_report.md")
+    print("\nMaster runner finished! Check logs/master.log for details.")
+    print("Final report: logs/final_report.md")
 
 if __name__ == "__main__":
     main()
