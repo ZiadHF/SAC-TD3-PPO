@@ -1,0 +1,13 @@
+# Ignore pycache
+__pycache__/
+
+# Ignore virtual environment folders
+venv/
+.venv/
+env/
+
+# Ignore logs and experiment outputs
+logs/
+
+# Ignore wandb files
+wandb/
