@@ -20,56 +20,58 @@ import traceback
 
 # ==================== CONFIGURATION ====================
 
-YOUR_HF_USERNAME = "ZiadHF" 
-HF_TOKEN = os.getenv("HF_TOKEN")
+# YOUR_HF_USERNAME = "ZiadHF" 
+# HF_TOKEN = os.getenv("HF_TOKEN")
+YOUR_HF_USERNAME = None  # Hugging Face disabled
+HF_TOKEN = None  # Hugging Face disabled
 WANDB_PROJECT = "cmps458-assignment4_2"
 
 # All experiments to run
 EXPERIMENTS = [
-    {"algo": "sac", "env": "LunarLander-v3", "config": "configs/sac_lunarlander.yaml", "priority": 1},
-    {"algo": "td3", "env": "LunarLander-v3", "config": "configs/td3_lunarlander.yaml", "priority": 2},
-    {"algo": "ppo", "env": "LunarLander-v3", "config": "configs/ppo_lunarlander.yaml", "priority": 3},
+    # {"algo": "sac", "env": "LunarLander-v3", "config": "configs/sac_lunarlander.yaml", "priority": 1},
+    # {"algo": "td3", "env": "LunarLander-v3", "config": "configs/td3_lunarlander.yaml", "priority": 2},
+    # {"algo": "ppo", "env": "LunarLander-v3", "config": "configs/ppo_lunarlander.yaml", "priority": 3},
     {"algo": "sac_cnn", "env": "CarRacing-v3", "config": "configs/sac_carracing.yaml", "priority": 4},
-    {"algo": "td3_cnn", "env": "CarRacing-v3", "config": "configs/td3_carracing.yaml", "priority": 5},
-    {"algo": "ppo_cnn", "env": "CarRacing-v3", "config": "configs/ppo_carracing.yaml", "priority": 6},
+    # {"algo": "td3_cnn", "env": "CarRacing-v3", "config": "configs/td3_carracing.yaml", "priority": 5},
+    # {"algo": "ppo_cnn", "env": "CarRacing-v3", "config": "configs/ppo_carracing.yaml", "priority": 6},
 ]
 
 # ==================== SETUP VALIDATION ====================
 
 def check_environment():
     """Validate system environment before starting"""
-    print("🔍 Validating environment...")
+    print("Validating environment...")
     
     # Check Python version
     if sys.version_info < (3, 8):
-        print("❌ Python 3.8+ required")
+        print("Python 3.8+ required")
         return False
     
     # Check GPU
     if torch.cuda.is_available():
         gpu_name = torch.cuda.get_device_name(0)
         gpu_mem = torch.cuda.get_device_properties(0).total_memory / 1e9
-        print(f"✅ GPU: {gpu_name} ({gpu_mem:.1f} GB)")
+        print(f"GPU: {gpu_name} ({gpu_mem:.1f} GB)")
         
         if gpu_mem < 8:
-            print("⚠️  GPU memory < 8GB - may need to reduce batch_size")
+            print("GPU memory < 8GB - may need to reduce batch_size")
     else:
-        print("⚠️  No GPU detected - training will be very slow")
+        print("No GPU detected - training will be very slow")
         response = input("Continue anyway? (y/n): ")
         if response.lower() != 'y':
             return False
     
     # Check disk space
     free_gb = shutil.disk_usage(".").free // (1024**3)
-    print(f"💾 Free disk space: {free_gb}GB")
+    print(f"Free disk space: {free_gb}GB")
     if free_gb < 20:
-        print("⚠️  Low disk space - may run out during training")
+        print("Low disk space - may run out during training")
         return False
     
-    # Check HF token
-    if not HF_TOKEN:
-        print("❌ HF_TOKEN not set. Run: export HF_TOKEN='hf_...'")
-        return False
+    # Hugging Face check disabled
+    # if not HF_TOKEN:
+    #     print("HF_TOKEN not set. Run: export HF_TOKEN='hf_...'")
+    #     return False
     
     # Check wandb - either env var or logged in via wandb login
     wandb_key = os.getenv("WANDB_API_KEY")
@@ -77,45 +79,27 @@ def check_environment():
         try:
             import wandb
             if wandb.api.default_entity:
-                print(f"✅ W&B: Logged in as {wandb.api.default_entity}")
+                print(f"W&B: Logged in as {wandb.api.default_entity}")
             else:
-                print("⚠️  WANDB_API_KEY not set - runs will be anonymous")
+                print("WANDB_API_KEY not set - runs will be anonymous")
         except:
-            print("⚠️  WANDB_API_KEY not set - runs will be anonymous")
+            print("WANDB_API_KEY not set - runs will be anonymous")
     else:
-        print("✅ W&B: API key found in environment")
+        print("W&B: API key found in environment")
     
     # Check all config files exist
     for exp in EXPERIMENTS:
         if not os.path.exists(exp['config']):
-            print(f"❌ Config not found: {exp['config']}")
+            print(f"Config not found: {exp['config']}")
             return False
     
     print("✅ Environment validation passed\n")
     return True
 
 def setup_huggingface():
-    """Create all HF repositories if they don't exist"""
-    print("🤗 Setting up Hugging Face repositories...")
-    
-    from huggingface_hub import create_repo
-    repos = [
-        f"{YOUR_HF_USERNAME}/sac-lunarlander-v3",
-        f"{YOUR_HF_USERNAME}/td3-lunarlander-v3",
-        f"{YOUR_HF_USERNAME}/ppo-lunarlander-v3",
-        f"{YOUR_HF_USERNAME}/sac-carracing-cnn",
-        f"{YOUR_HF_USERNAME}/td3-carracing-cnn",
-        f"{YOUR_HF_USERNAME}/ppo-carracing-cnn"
-    ]
-    
-    for repo in repos:
-        try:
-            create_repo(repo, exist_ok=True, token=HF_TOKEN, repo_type="model")
-            print(f"✅ {repo}")
-        except Exception as e:
-            print(f"⚠️  {repo}: {e}")
-    
-    print("✅ HF setup complete\n")
+    # Hugging Face setup disabled
+    print("HF setup skipped (disabled)")
+    return
 
 # ==================== EXPERIMENT RUNNER ====================
 
@@ -313,7 +297,7 @@ class MasterRunner:
         
         try:
             import wandb
-            api = wandb.Api()
+            api = wandb.Api(entity="ziadhf-cairo-university")
             
             report_data = []
             for exp in EXPERIMENTS:
@@ -353,7 +337,7 @@ def main():
     args = parser.parse_args()
     
     if args.validate_only:
-        print("🔍 Running validation only...")
+        print("Running validation only...")
         if not check_environment():
             exit(1)
         exit(0)
@@ -363,8 +347,9 @@ def main():
         print("\nEnvironment validation failed. Fix issues and retry.")
         exit(1)
     
-    # Phase 2: Setup HF
-    setup_huggingface()
+    # Phase 2: Setup HF (disabled)
+    # setup_huggingface()
+    print("HF integration is currently disabled.")
     
     # Phase 3: Create directories
     Path("models").mkdir(exist_ok=True)

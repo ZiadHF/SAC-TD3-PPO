@@ -145,7 +145,8 @@ def train(config: Dict[str, Any]) -> float:
     # Initialize wandb
     run_name = f"{config['algo']}-{config['env_id']}-{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     wandb.init(
-        project="cmps458-assignment4",
+        project="cmps458-assignment4_2",
+        entity="ziadhf-cairo-university",
         config=config,
         name=run_name,
         tags=[config['algo'], config['env_id']],
