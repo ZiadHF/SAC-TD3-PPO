@@ -117,8 +117,12 @@ class NatureCNN(nn.Module):
         self.feature_dim = feature_dim
 
     def forward(self, x):
-        if len(x.shape) == 4:  # (B, H, W, C) -> (B, C, H, W)
-            x = x.permute(0, 3, 1, 2).contiguous()
+        # Check if input is (B, H, W, C) and needs permutation to (B, C, H, W)
+        # We use self.input_shape[0] which stores the expected channel count
+        if len(x.shape) == 4:
+            if x.shape[1] != self.input_shape[0] and x.shape[-1] == self.input_shape[0]:
+                x = x.permute(0, 3, 1, 2).contiguous()
+        
         x = F.relu(self.conv1(x))
         x = F.relu(self.conv2(x))
         x = F.relu(self.conv3(x))

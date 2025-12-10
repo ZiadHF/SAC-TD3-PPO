@@ -219,6 +219,7 @@ def train(config: Dict[str, Any], checkpoint_path: str = None) -> float:
     wandb.init(
         project="cmps458-assignment4_3",
         config=config,
+        entity="ziadhf-cairo-university",
         name=run_name,
         tags=[config['algo'], config['env_id']],
         monitor_gym=True,
@@ -228,6 +229,19 @@ def train(config: Dict[str, Any], checkpoint_path: str = None) -> float:
     print(f"\n{'='*70}")
     print(f"[START] Training: {run_name}")
     print(f"{'='*70}")
+    
+    # Display HuggingFace status
+    if config.get('publish_to_hub', False):
+        if os.getenv('HF_TOKEN'):
+            print(f"[HF] HuggingFace uploads enabled to: {config.get('hf_repo_id', 'N/A')}")
+        else:
+            print(f"[HF] publish_to_hub=true but HF_TOKEN not set")
+            print(f"[HF] Models will only be saved locally")
+            print(f"[HF] To enable uploads: export HF_TOKEN='your_token_here'")
+    else:
+        print(f"[HF] HuggingFace uploads disabled (publish_to_hub=false)")
+    print(f"[SAVE] Models will be saved to: models/{run_name}_*.pth")
+    print()
     
     # Set global seed
     set_seed(config['seed'])
@@ -375,22 +389,28 @@ def train(config: Dict[str, Any], checkpoint_path: str = None) -> float:
                     best_eval_score = eval_results['mean']
                     print(f"[BEST] New best: {best_eval_score:.2f}")
                     
-                    # Save locally
+                    # Always save locally first
                     save_path = save_model(agent, config, best_eval_score, step, suffix="best")
                     
-                    # Upload to HF Hub
-                    if config.get('publish_to_hub', False):
+                    # Optional: Upload to HuggingFace Hub (requires HF_TOKEN environment variable)
+                    if config.get('publish_to_hub', False) and os.getenv('HF_TOKEN'):
                         try:
                             from huggingface_hub import upload_file
                             upload_file(
                                 path_or_fileobj=save_path,
                                 path_in_repo="model.pth",
-                                repo_id=config['hf_repo_id'],
-                                commit_message=f"Best model: {best_eval_score:.2f}"
+                                repo_id=config.get('hf_repo_id', 'username/model-name'),
+                                commit_message=f"Best model: {best_eval_score:.2f}",
+                                token=os.getenv('HF_TOKEN')
                             )
-                            print(f"[OK] Uploaded to HF: {config['hf_repo_id']}")
+                            print(f"[HF] ✓ Uploaded to HuggingFace: {config['hf_repo_id']}")
                         except Exception as e:
-                            print(f"[WARN] HF upload failed: {e} (continuing)")
+                            print(f"[HF] Upload failed: {e}")
+                            print(f"[HF] Model saved locally at: {save_path}")
+                    elif config.get('publish_to_hub', False) and not os.getenv('HF_TOKEN'):
+                        print(f"[HF] publish_to_hub=true but HF_TOKEN not set")
+                        print(f"[HF] Model saved locally at: {save_path}")
+                        print(f"[HF] Set HF_TOKEN environment variable to enable uploads")
                 
                 # Save latest checkpoint
                 save_model(agent, config, eval_results['mean'], step, suffix="latest")
