@@ -49,12 +49,15 @@ class TD3AgentCNN(TD3Agent):
         self.train_steps = 0
 
     def select_action(self, obs, deterministic=False):
-        # 1. Convert to float tensor
-        obs_tensor = torch.as_tensor(obs, dtype=torch.float32, device=self.device).unsqueeze(0)
+        # Convert obs to tensor and add batch dimension
+        # Obs comes from FrameStack wrapper in (H, W, C) format, already normalized [0, 1]
+        obs_tensor = torch.as_tensor(obs, dtype=torch.float32, device=self.device)
         
-        # 2. CRITICAL: Normalize Image [0, 255] -> [0, 1]
-        obs_tensor = obs_tensor / 255.0
+        # Add batch dimension if needed
+        if len(obs_tensor.shape) == 3:
+            obs_tensor = obs_tensor.unsqueeze(0)
         
+        # Note: No permutation here - the CNN network handles HWC→CHW conversion internally
 
         with torch.no_grad():
             action = self.actor(obs_tensor).cpu().numpy()[0]
@@ -73,14 +76,16 @@ class TD3AgentCNN(TD3Agent):
         self.train_steps += 1
         batch = self.replay_buffer.sample(self.batch_size, self.device)
         
-        # --- PREPROCESSING START ---
-        # 1. Normalize
-        obs = batch['obs'].float() / 255.0
-        next_obs = batch['next_obs'].float() / 255.0
-            
-        # 3. Scale Rewards (Stabilizes Critic)
+        # --- CNN SPECIFIC PREPROCESSING ---
+        # Observations are already normalized [0, 1] from FrameStack wrapper
+        obs = batch['obs'].float()
+        next_obs = batch['next_obs'].float()
+        
+        # Note: No permutation here - the CNN network handles HWC→CHW conversion internally
+        
+        # Scale Rewards: CarRacing rewards are huge (~900), scale to prevent value explosion
         rewards = batch['rewards'] / 20.0
-        # --- PREPROCESSING END ---
+        # ----------------------------------
 
         # Critic Update
         with torch.no_grad():
