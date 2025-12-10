@@ -23,5 +23,6 @@ agent_params:
   train_v_iters: 20
   target_kl: 0.015
   ent_coef: 0.01
+  batch_size: 64
   hidden_dims: [256, 256]
   max_ep_len: 1000
