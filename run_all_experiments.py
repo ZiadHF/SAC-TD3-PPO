@@ -26,12 +26,12 @@ WANDB_PROJECT = "cmps458-assignment4_3"
 
 # All experiments to run
 EXPERIMENTS = [
-    {"algo": "sac", "env": "LunarLander-v3", "config": "configs/sac_lunarlander.yaml", "priority": 1},
-    {"algo": "td3", "env": "LunarLander-v3", "config": "configs/td3_lunarlander.yaml", "priority": 2},
+    # {"algo": "sac", "env": "LunarLander-v3", "config": "configs/sac_lunarlander.yaml", "priority": 1},
+    # {"algo": "td3", "env": "LunarLander-v3", "config": "configs/td3_lunarlander.yaml", "priority": 2},
     {"algo": "ppo", "env": "LunarLander-v3", "config": "configs/ppo_lunarlander.yaml", "priority": 3},
-    {"algo": "sac_cnn", "env": "CarRacing-v3", "config": "configs/sac_carracing.yaml", "priority": 4},
-    {"algo": "td3_cnn", "env": "CarRacing-v3", "config": "configs/td3_carracing.yaml", "priority": 5},
-    {"algo": "ppo_cnn", "env": "CarRacing-v3", "config": "configs/ppo_carracing.yaml", "priority": 6},
+    # {"algo": "sac_cnn", "env": "CarRacing-v3", "config": "configs/sac_carracing.yaml", "priority": 4},
+    # {"algo": "td3_cnn", "env": "CarRacing-v3", "config": "configs/td3_carracing.yaml", "priority": 5},
+    # {"algo": "ppo_cnn", "env": "CarRacing-v3", "config": "configs/ppo_carracing.yaml", "priority": 6},
 ]
 
 # ==================== SETUP VALIDATION ====================

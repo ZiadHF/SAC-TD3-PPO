@@ -79,6 +79,30 @@ def save_model(agent, config: Dict[str, Any], score: float, step: int, suffix: s
     print(f"[{suffix.upper()}] Saved model to {save_path}")
     return save_path
 
+def load_model(agent, checkpoint_path: str):
+    """Load model checkpoint"""
+    if not os.path.exists(checkpoint_path):
+        raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
+        
+    print(f"[LOAD] Loading checkpoint from {checkpoint_path}...")
+    checkpoint = torch.load(checkpoint_path, map_location=agent.device, weights_only=False)
+    
+    # Load actor
+    agent.actor.load_state_dict(checkpoint['actor_state_dict'])
+    
+    # Load critic if available
+    if hasattr(agent, 'critic') and 'critic_state_dict' in checkpoint:
+        agent.critic.load_state_dict(checkpoint['critic_state_dict'])
+        # Also load target networks if they exist
+        if hasattr(agent, 'critic_target'):
+            agent.critic_target.load_state_dict(checkpoint['critic_state_dict'])
+    
+    if hasattr(agent, 'actor_target') and 'actor_state_dict' in checkpoint:
+        agent.actor_target.load_state_dict(checkpoint['actor_state_dict'])
+        
+    print(f"[OK] Model loaded successfully (Step: {checkpoint.get('step', 'Unknown')}, Score: {checkpoint.get('eval_score', 'Unknown')})")
+    return checkpoint
+
 def evaluate(agent, env: gym.Env, n_episodes: int = 5, max_ep_len: int = 1000) -> Dict[str, float]:
     """Evaluate agent across multiple episodes"""
     rewards = []
@@ -182,7 +206,7 @@ def create_agent(config: Dict[str, Any], env: gym.Env) -> Any:
         print(f"Parameters: {base_params}")
         raise
 
-def train(config: Dict[str, Any]) -> float:
+def train(config: Dict[str, Any], checkpoint_path: str = None) -> float:
     """Main training function"""
     # Validate config
     required_keys = ['algo', 'env_id', 'device', 'total_steps', 'eval_interval', 'eval_episodes']
@@ -231,6 +255,13 @@ def train(config: Dict[str, Any]) -> float:
     # Create agent
     agent = create_agent(config, env)
     
+    # Load checkpoint if provided
+    start_step = 0
+    if checkpoint_path:
+        checkpoint = load_model(agent, checkpoint_path)
+        start_step = checkpoint.get('step', 0)
+        print(f"[RESUME] Resuming training from step {start_step}")
+    
     # Training variables
     obs, _ = env.reset()
     episode_reward = 0
@@ -260,7 +291,7 @@ def train(config: Dict[str, Any]) -> float:
     
     # Main training loop
     try:
-        for step in range(config['total_steps']):
+        for step in range(start_step, config['total_steps']):
             # Action selection
             if isinstance(agent, (PPOAgent, PPOAgentCNN)):
                 action, logp, val = agent.select_action(obs, deterministic=False)
@@ -409,6 +440,7 @@ def train(config: Dict[str, Any]) -> float:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train RL agents for CMPS458 Assignment 4")
     parser.add_argument('--config', type=str, required=True, help="Path to config YAML file")
+    parser.add_argument('--load', type=str, default=None, help="Path to model checkpoint to load")
     args = parser.parse_args()
     
     try:
@@ -422,7 +454,7 @@ if __name__ == "__main__":
         # Add derived fields
         config['run_name'] = f"{config['algo']}-{config['env_id']}-{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         
-        train(config)
+        train(config, checkpoint_path=args.load)
     except Exception as e:
         print(f"[ERROR] Fatal error: {e}")
         import traceback

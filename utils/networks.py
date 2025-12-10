@@ -50,6 +50,25 @@ class GaussianPolicy(nn.Module):
         
         return action, log_prob, entropy
 
+    def evaluate_actions(self, obs, actions):
+        mean, log_std = self.forward(obs)
+        std = log_std.exp()
+        normal = torch.distributions.Normal(mean, std)
+        
+        # Invert tanh to get x_t
+        # x_t = atanh(actions)
+        # Clamp actions to avoid nan in atanh
+        actions = torch.clamp(actions, -0.999999, 0.999999)
+        x_t = 0.5 * (torch.log(1 + actions) - torch.log(1 - actions))
+        
+        log_prob = normal.log_prob(x_t)
+        # Tanh correction
+        log_prob -= torch.log(1 - actions.pow(2) + 1e-6)
+        log_prob = log_prob.sum(dim=-1, keepdim=True)
+        entropy = normal.entropy().sum(dim=-1)
+        
+        return log_prob, entropy
+
 class Critic(nn.Module):
     def __init__(self, obs_dim, action_dim, hidden_dims=[256, 256]):
         super().__init__()
@@ -138,6 +157,22 @@ class ConvGaussianPolicy(nn.Module):
         entropy = normal.entropy().sum(dim=-1)
         
         return action, log_prob, entropy
+
+    def evaluate_actions(self, obs, actions):
+        mean, log_std = self.forward(obs)
+        std = log_std.exp()
+        normal = torch.distributions.Normal(mean, std)
+        
+        # Invert tanh to get x_t
+        actions = torch.clamp(actions, -0.999999, 0.999999)
+        x_t = 0.5 * (torch.log(1 + actions) - torch.log(1 - actions))
+        
+        log_prob = normal.log_prob(x_t)
+        log_prob -= torch.log(1 - actions.pow(2) + 1e-6)
+        log_prob = log_prob.sum(dim=-1, keepdim=True)
+        entropy = normal.entropy().sum(dim=-1)
+        
+        return log_prob, entropy
 
 class ConvCritic(nn.Module):
     def __init__(self, obs_shape, action_dim, feature_dim=512, hidden_dims=[256, 256]):

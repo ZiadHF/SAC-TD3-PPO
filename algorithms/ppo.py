@@ -95,7 +95,7 @@ class PPOAgent(BaseAgent):
                 batch_adv = advantages[idx]
                 batch_ret = returns[idx]
                 
-                _, new_logps, entropy = self.actor.sample(batch_obs)
+                new_logps, entropy = self.actor.evaluate_actions(batch_obs, batch_act)
                 ratio = torch.exp(new_logps - batch_logp.unsqueeze(1))
                 surr1 = ratio * batch_adv.unsqueeze(1)
                 surr2 = torch.clamp(ratio, 1 - self.clip_ratio, 1 + self.clip_ratio) * batch_adv.unsqueeze(1)
