@@ -5,7 +5,7 @@ import os
 import wandb
 from datetime import datetime
 from algorithms import *
-from utils.wrappers import PreprocessCarRacing, FrameStack
+from utils.wrappers import PreprocessCarRacing, FrameStack, RepeatAction
 import argparse
 
 def load_agent(config_path, model_path):
@@ -49,7 +49,7 @@ def load_agent(config_path, model_path):
     env.close()
     
     # Load weights
-    checkpoint = torch.load(model_path, map_location=device)
+    checkpoint = torch.load(model_path, map_location=device, weights_only=False)
     agent.actor.load_state_dict(checkpoint['actor_state_dict'])
     if hasattr(agent, 'critic') and 'critic_state_dict' in checkpoint:
         agent.critic.load_state_dict(checkpoint['critic_state_dict'])
@@ -71,6 +71,7 @@ def evaluate_agent(config_path, model_path, n_episodes=10, record_video=False, w
     env = gym.make(config['env_id'], continuous=True, render_mode="rgb_array" if record_video else None)
     if config.get('use_cnn', False):
         env = PreprocessCarRacing(env)
+        env = RepeatAction(env, skip=4)
         env = FrameStack(env, num_stack=4)
     
     # Wrap with video recorder if needed
@@ -82,8 +83,21 @@ def evaluate_agent(config_path, model_path, n_episodes=10, record_video=False, w
         
         # For CNN envs, we need a separate recording env
         if config.get('use_cnn', False):
-            record_env = gym.make(config['env_id'], continuous=True, render_mode="rgb_array")
-            record_env = gym.wrappers.RecordVideo(record_env, video_folder, episode_trigger=lambda x: True)
+            # We need to record the RAW environment, but step it using the WRAPPED environment's logic
+            # This is tricky. The easiest way is to wrap the env with RecordVideo BEFORE preprocessing
+            # But we already created 'env'. Let's recreate it properly.
+            env.close()
+            
+            # 1. Create base env with recording
+            env = gym.make(config['env_id'], continuous=True, render_mode="rgb_array")
+            env = gym.wrappers.RecordVideo(env, video_folder, episode_trigger=lambda x: True)
+            
+            # 2. Apply wrappers ON TOP of the recording env
+            env = PreprocessCarRacing(env)
+            env = RepeatAction(env, skip=4)
+            env = FrameStack(env, num_stack=4)
+            
+            record_env = None # No longer needed as separate env
         else:
             env = gym.wrappers.RecordVideo(env, video_folder, episode_trigger=lambda x: True)
             record_env = None
@@ -109,8 +123,7 @@ def evaluate_agent(config_path, model_path, n_episodes=10, record_video=False, w
                 action = agent.select_action(obs, deterministic=True)
             
             obs, reward, term, trunc, _ = env.step(action)
-            if record_env is not None:
-                record_env.step(action)
+            # record_env logic removed as it is now integrated
                 
             done = term or trunc
             total += reward
@@ -147,7 +160,7 @@ def evaluate_agent(config_path, model_path, n_episodes=10, record_video=False, w
     # Log to wandb
     if wandb_log:
         run = wandb.init(
-            project="cmps458-assignment4",
+            project="cmps458-assignment4_eval",
             name=f"eval-{config['algo']}-{config['env_id']}",
             config=config,
             tags=[config['algo'], config['env_id'], 'evaluation']
@@ -162,11 +175,11 @@ def evaluate_agent(config_path, model_path, n_episodes=10, record_video=False, w
         })
         
         # Upload videos if recorded
-        if record_video and video_folder:
-            import glob
-            for video_file in glob.glob(f"{video_folder}/*.mp4"):
-                wandb.log({"video": wandb.Video(video_file, fps=30, format="mp4")})
-                print(f"[WANDB] Uploaded: {video_file}")
+        # if record_video and video_folder:
+        #     import glob
+        #     for video_file in glob.glob(f"{video_folder}/*.mp4"):
+        #         wandb.log({"video": wandb.Video(video_file, fps=30, format="mp4")})
+        #         print(f"[WANDB] Uploaded: {video_file}")
         
         wandb.finish()
         print("[OK] Results logged to Wandb")
