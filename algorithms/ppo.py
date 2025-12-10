@@ -10,7 +10,7 @@ import numpy as np
 class PPOAgent(BaseAgent):
     def __init__(self, obs_dim, action_dim, lr=3e-4, gamma=0.99, clip_ratio=0.2, 
                  lam=0.95, train_pi_iters=80, train_v_iters=80, target_kl=0.01,
-                 hidden_dims=[64, 64], max_ep_len=1000, device='cuda'):
+                 hidden_dims=[64, 64], max_ep_len=1000, ent_coef=0.0, batch_size=64, device='cuda'):
         self.device = device
         self.gamma = gamma
         self.clip_ratio = clip_ratio
@@ -19,6 +19,8 @@ class PPOAgent(BaseAgent):
         self.train_v_iters = train_v_iters
         self.target_kl = target_kl
         self.max_ep_len = max_ep_len
+        self.ent_coef = ent_coef
+        self.batch_size = batch_size
         
         self.actor = GaussianPolicy(obs_dim, action_dim, hidden_dims).to(device)
         self.critic = MLP(obs_dim, hidden_dims, 1).to(device)
@@ -31,7 +33,7 @@ class PPOAgent(BaseAgent):
     def select_action(self, obs, deterministic=False):
         obs = torch.as_tensor(obs, dtype=torch.float32, device=self.device).unsqueeze(0)
         with torch.no_grad():
-            action, log_prob = self.actor.sample(obs, deterministic)
+            action, log_prob, _ = self.actor.sample(obs, deterministic)
             value = self.critic(obs)
         # log_prob is None when deterministic=True
         if log_prob is None:
@@ -75,36 +77,62 @@ class PPOAgent(BaseAgent):
         actor_losses = []
         critic_losses = []
         kl_divs = []
+        entropies = []
+        
+        dataset_size = len(data['obs'])
+        indices = np.arange(dataset_size)
         
         for i in range(self.train_pi_iters):
-            _, new_logps = self.actor.sample(old_obs)
-            ratio = torch.exp(new_logps - old_logps.unsqueeze(1))
-            surr1 = ratio * advantages.unsqueeze(1)
-            surr2 = torch.clamp(ratio, 1 - self.clip_ratio, 1 + self.clip_ratio) * advantages.unsqueeze(1)
-            actor_loss = -torch.min(surr1, surr2).mean()
+            np.random.shuffle(indices)
             
-            values = self.critic(old_obs).squeeze()
-            critic_loss = F.mse_loss(values, returns)
+            for start in range(0, dataset_size, self.batch_size):
+                end = start + self.batch_size
+                idx = indices[start:end]
+                
+                batch_obs = old_obs[idx]
+                batch_act = old_actions[idx]
+                batch_logp = old_logps[idx]
+                batch_adv = advantages[idx]
+                batch_ret = returns[idx]
+                
+                _, new_logps = self.actor.sample(batch_obs)
+                mean, log_std = self.actor.forward(batch_obs)
+                entropy = (0.5 + 0.5 * np.log(2 * np.pi) + log_std).sum(dim=-1)
+                ratio = torch.exp(new_logps - batch_logp.unsqueeze(1))
+                surr1 = ratio * batch_adv.unsqueeze(1)
+                surr2 = torch.clamp(ratio, 1 - self.clip_ratio, 1 + self.clip_ratio) * batch_adv.unsqueeze(1)
+                
+                # Entropy bonus
+                # entropy_loss = -entropy.mean()
+                actor_loss = -torch.min(surr1, surr2).mean() #+ self.ent_coef * entropy_loss
+                
+                values = self.critic(batch_obs).squeeze()
+                critic_loss = F.mse_loss(values, batch_ret)
+                
+                self.actor_optim.zero_grad()
+                actor_loss.backward()
+                nn.utils.clip_grad_norm_(self.actor.parameters(), max_norm=0.5)
+                self.actor_optim.step()
+                
+                self.critic_optim.zero_grad()
+                critic_loss.backward()
+                nn.utils.clip_grad_norm_(self.critic.parameters(), max_norm=0.5)
+                self.critic_optim.step()
+                
+                kl = (batch_logp.unsqueeze(1) - new_logps).mean()
+                kl_divs.append(kl.item())
+                actor_losses.append(actor_loss.item())
+                critic_losses.append(critic_loss.item())
+                entropies.append(entropy.mean().item())
             
-            self.actor_optim.zero_grad()
-            actor_loss.backward()
-            nn.utils.clip_grad_norm_(self.actor.parameters(), max_norm=0.5)
-            self.actor_optim.step()
-            
-            self.critic_optim.zero_grad()
-            critic_loss.backward()
-            nn.utils.clip_grad_norm_(self.critic.parameters(), max_norm=0.5)
-            self.critic_optim.step()
-            
-            kl = (old_logps.unsqueeze(1) - new_logps).mean()
-            kl_divs.append(kl.item())
-            
-            if kl > self.target_kl:
+            # Early stopping based on KL divergence (averaged over epoch)
+            if np.mean(kl_divs[-dataset_size//self.batch_size:]) > self.target_kl * 1.5:
                 break
         
         return {
-            'actor_loss': actor_loss.item(),
-            'critic_loss': critic_loss.item(),
+            'actor_loss': np.mean(actor_losses),
+            'critic_loss': np.mean(critic_losses),
             'kl_divergence': np.mean(kl_divs),
-            'training_epochs': i + 1
+            'training_epochs': i + 1,
+            'entropy': np.mean(entropies)
         }

@@ -3,7 +3,7 @@ env_id: LunarLander-v3
 use_cnn: false
 seed: 42
 device: cuda
-total_steps: 1000000
+total_steps: 1500000
 learning_starts: 0
 rollout_length: 2048
 train_freq: 2048
@@ -19,8 +19,10 @@ agent_params:
   gamma: 0.99
   clip_ratio: 0.2
   lam: 0.95
-  train_pi_iters: 10
-  train_v_iters: 10
+  train_pi_iters: 20
+  train_v_iters: 20
   target_kl: 0.015
+  ent_coef: 0.01
+  batch_size: 64
   hidden_dims: [256, 256]
   max_ep_len: 1000

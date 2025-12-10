@@ -202,7 +202,7 @@ def train(config: Dict[str, Any]) -> float:
     # Initialize wandb
     run_name = config.get('run_name')
     wandb.init(
-        project="cmps458-assignment4_2",
+        project="cmps458-assignment4_3",
         entity="ziadhf-cairo-university",
         config=config,
         name=run_name,

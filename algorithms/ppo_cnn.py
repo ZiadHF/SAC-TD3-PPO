@@ -15,6 +15,8 @@ class PPOAgentCNN(PPOAgent):
         self.train_v_iters = kwargs['train_v_iters']
         self.target_kl = kwargs['target_kl']
         self.max_ep_len = kwargs['max_ep_len']
+        self.ent_coef = kwargs.get('ent_coef', 0.0)
+        self.batch_size = kwargs.get('batch_size', 64)
         
         # Extract only the hidden_dims for networks
         hidden_dims = kwargs.get('hidden_dims', [256, 256])
