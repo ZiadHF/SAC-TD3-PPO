@@ -86,5 +86,5 @@ class TD3Agent(BaseAgent):
         
         return {
             'critic_loss': critic_loss.item(),
-            'actor_loss': actor_loss.item()
+            'actor_loss': actor_loss.item() if self.train_steps % self.policy_delay == 0 else 0.0
         }

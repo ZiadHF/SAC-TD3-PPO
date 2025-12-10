@@ -313,7 +313,10 @@ def train(config: Dict[str, Any], checkpoint_path: str = None) -> float:
             if isinstance(agent, (PPOAgent, PPOAgentCNN)):
                 should_train = len(agent.buffer.obs) >= config.get('rollout_length', 2048)
             else:
-                should_train = step > prefill_steps and step % config['train_freq'] == 0
+                # We already prefilled the buffer, so we can start training immediately
+                # provided we have enough data (batch_size)
+                has_enough_data = len(agent.replay_buffer) >= agent.batch_size
+                should_train = has_enough_data and step % config['train_freq'] == 0
                 
             if should_train:
                 if isinstance(agent, (PPOAgent, PPOAgentCNN)):
