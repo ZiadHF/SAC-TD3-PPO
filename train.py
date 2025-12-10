@@ -166,6 +166,31 @@ def save_model(agent, path, config, eval_score, step):
     torch.save(save_dict, path)
     print(f"[SAVE] Model saved to {path}")
 
+def load_checkpoint(agent, checkpoint_path):
+    """Load checkpoint and return the step number and best eval score"""
+    checkpoint = torch.load(checkpoint_path, map_location=agent.device, weights_only=False)
+    agent.actor.load_state_dict(checkpoint['actor_state_dict'])
+    if hasattr(agent, 'critic') and 'critic_state_dict' in checkpoint:
+        agent.critic.load_state_dict(checkpoint['critic_state_dict'])
+    print(f"[LOAD] Checkpoint loaded from {checkpoint_path}")
+    print(f"       Step: {checkpoint['step']}, Eval Score: {checkpoint['eval_score']:.2f}")
+    return checkpoint['step'], checkpoint['eval_score']
+
+def find_latest_checkpoint(run_name):
+    """Find the latest checkpoint for a given run"""
+    model_dir = f"models/{run_name}"
+    if not os.path.exists(model_dir):
+        return None
+    
+    checkpoints = [f for f in os.listdir(model_dir) if f.startswith('checkpoint_') and f.endswith('.pth')]
+    if not checkpoints:
+        return None
+    
+    # Extract step numbers and find max
+    checkpoint_steps = [(int(f.split('_')[1].split('.')[0]), f) for f in checkpoints]
+    latest_step, latest_file = max(checkpoint_steps, key=lambda x: x[0])
+    return os.path.join(model_dir, latest_file)
+
 def train(config: Dict[str, Any]) -> float:
     """Main training function"""
     # Validate config
@@ -209,10 +234,21 @@ def train(config: Dict[str, Any]) -> float:
     agent = create_agent(config, env)
     
     # Training variables
+    start_step = 0
+    best_eval_score = -np.inf
+    
+    # Resume from checkpoint if requested
+    if config.get('resume', False):
+        checkpoint_path = find_latest_checkpoint(run_name)
+        if checkpoint_path:
+            start_step, best_eval_score = load_checkpoint(agent, checkpoint_path)
+            print(f"[RESUME] Continuing from step {start_step}")
+        else:
+            print(f"[WARNING] No checkpoint found for {run_name}, starting from scratch")
+    
     obs, _ = env.reset()
     episode_reward = 0
     episode_length = 0
-    best_eval_score = -np.inf
     eval_interval = config['eval_interval']
     checkpoint_freq = config.get('checkpoint_freq', 100000)
     
@@ -237,7 +273,7 @@ def train(config: Dict[str, Any]) -> float:
         obs, _ = env.reset() # Reset for actual training
     
     # Main training loop
-    for step in range(config['total_steps']):
+    for step in range(start_step, config['total_steps']):
         # Action selection
         if isinstance(agent, (PPOAgent, PPOAgentCNN)):
             action, logp, val = agent.select_action(obs, deterministic=False)
@@ -348,6 +384,7 @@ def train(config: Dict[str, Any]) -> float:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train RL agents")
     parser.add_argument('--config', type=str, required=True, help="Path to config YAML file")
+    parser.add_argument('--resume', type=str, default=None, help="Run name to resume from (e.g., sac_cnn-CarRacing-v3-20251210_035927)")
     args = parser.parse_args()
     
     try:
@@ -355,7 +392,12 @@ if __name__ == "__main__":
             config = yaml.safe_load(f)
         
         # Add derived fields
-        config['run_name'] = f"{config['algo']}-{config['env_id']}-{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        if args.resume:
+            config['run_name'] = args.resume
+            config['resume'] = True
+        else:
+            config['run_name'] = f"{config['algo']}-{config['env_id']}-{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            config['resume'] = False
         
         train(config)
     except Exception as e:
