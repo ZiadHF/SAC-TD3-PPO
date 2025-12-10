@@ -4,8 +4,8 @@ use_cnn: true
 feature_dim: 512
 seed: 42
 device: cuda
-total_steps: 1500000
-learning_starts: 20000
+total_steps: 2000000        # Increased slightly to account for longer warmup
+learning_starts: 35000      # CRITICAL CHANGE 1: Was 20000
 train_freq: 1
 gradient_steps: 1
 max_ep_len: 1000
@@ -22,6 +22,6 @@ agent_params:
   noise_clip: 0.5
   policy_delay: 2
   buffer_size: 200000
-  batch_size: 128
+  batch_size: 256           # CRITICAL CHANGE 2: Was 128
   hidden_dims: [256, 256]
-  exploration_noise: 0.1
+  exploration_noise: 0.3    # CRITICAL CHANGE 3: Was 0.1
