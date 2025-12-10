@@ -111,13 +111,16 @@ def create_agent(config: Dict[str, Any], env: gym.Env) -> Any:
         
         # All CNN agents need these
         base_params['obs_shape'] = env.observation_space.shape
-        base_params['feature_dim'] = config['agent_params']['feature_dim']
+        base_params['feature_dim'] = config.get('feature_dim', 512)  # Get from top-level config
         
         # Map algorithm to CNN variant
         agent_map = {
             'sac': SACAgentCNN,
             'td3': TD3AgentCNN,
-            'ppo': PPOAgentCNN
+            'ppo': PPOAgentCNN,
+            'sac_cnn': SACAgentCNN,
+            'td3_cnn': TD3AgentCNN,
+            'ppo_cnn': PPOAgentCNN
         }
         
         # Simple lookup

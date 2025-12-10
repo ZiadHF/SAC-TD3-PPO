@@ -25,14 +25,15 @@ import traceback
 YOUR_HF_USERNAME = None  # Hugging Face disabled
 HF_TOKEN = None  # Hugging Face disabled
 WANDB_PROJECT = "cmps458-assignment4_2"
+WANDB_ENTITY = "ziadhf-cairo-university"
 
 # All experiments to run
 EXPERIMENTS = [
     # {"algo": "sac", "env": "LunarLander-v3", "config": "configs/sac_lunarlander.yaml", "priority": 1},
     # {"algo": "td3", "env": "LunarLander-v3", "config": "configs/td3_lunarlander.yaml", "priority": 2},
     # {"algo": "ppo", "env": "LunarLander-v3", "config": "configs/ppo_lunarlander.yaml", "priority": 3},
-    {"algo": "sac_cnn", "env": "CarRacing-v3", "config": "configs/sac_carracing.yaml", "priority": 4},
-    # {"algo": "td3_cnn", "env": "CarRacing-v3", "config": "configs/td3_carracing.yaml", "priority": 5},
+    # {"algo": "sac_cnn", "env": "CarRacing-v3", "config": "configs/sac_carracing.yaml", "priority": 4},
+    {"algo": "td3_cnn", "env": "CarRacing-v3", "config": "configs/td3_carracing.yaml", "priority": 5},
     # {"algo": "ppo_cnn", "env": "CarRacing-v3", "config": "configs/ppo_carracing.yaml", "priority": 6},
 ]
 
@@ -297,12 +298,12 @@ class MasterRunner:
         
         try:
             import wandb
-            api = wandb.Api(entity="ziadhf-cairo-university")
+            api = wandb.Api()
             
             report_data = []
             for exp in EXPERIMENTS:
                 runs = api.runs(
-                    WANDB_PROJECT,
+                    f"{WANDB_ENTITY}/{WANDB_PROJECT}",
                     {"config.algo": exp['algo'], "config.env_id": exp['env']}
                 )
                 
