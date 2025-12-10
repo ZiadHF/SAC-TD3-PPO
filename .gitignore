@@ -11,3 +11,4 @@ logs/
 
 # Ignore wandb files
 wandb/
+videos/

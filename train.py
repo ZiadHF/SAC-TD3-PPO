@@ -7,22 +7,40 @@ import yaml
 import os
 import sys
 from datetime import datetime
-from typing import Dict, Any, Tuple
+from typing import Dict, Any
 
 # Fix Windows encoding issues with emojis
 if sys.platform == 'win32':
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
     sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 
-# Import all agents
+# Import all agents (ensure these exist in your local files)
 from algorithms import SACAgent, TD3Agent, PPOAgent
 from algorithms import SACAgentCNN, TD3AgentCNN, PPOAgentCNN
 from utils.wrappers import PreprocessCarRacing, FrameStack
+from gymnasium.wrappers import RecordVideo  # Added for video recording
 
-def make_env(env_id: str, seed: int = 42, use_cnn: bool = False) -> gym.Env:
-    """Create environment with optional CNN preprocessing"""
-    env = gym.make(env_id, continuous=True)
+def make_env(env_id: str, seed: int = 42, use_cnn: bool = False, 
+             capture_video: bool = False, run_name: str = None) -> gym.Env:
+    """Create environment with optional CNN preprocessing and Video Recording"""
     
+    # 1. Initialize with rgb_array to support video recording
+    render_mode = 'rgb_array' if capture_video else None
+    env = gym.make(env_id, continuous=True, render_mode=render_mode)
+    
+    # 2. Add Video Recorder (Wrap BEFORE preprocessing to capture clean game)
+    if capture_video and run_name:
+        video_folder = f"videos/{run_name}"
+        # Record every episode (or adjust trigger as needed)
+        env = RecordVideo(
+            env, 
+            video_folder=video_folder,
+            episode_trigger=lambda x: True, # Record all eval episodes
+            disable_logger=True
+        )
+        print(f"[VIDEO] Recording enabled -> {video_folder}")
+
+    # 3. Apply CNN Preprocessing
     if use_cnn:
         print("[IMG] Applying CNN preprocessing (grayscale + frame stack)")
         env = PreprocessCarRacing(env, resize=(84, 84))
@@ -93,33 +111,29 @@ def create_agent(config: Dict[str, Any], env: gym.Env) -> Any:
         
         # All CNN agents need these
         base_params['obs_shape'] = env.observation_space.shape
-        base_params['feature_dim'] = config['feature_dim']
+        base_params['feature_dim'] = config['agent_params']['feature_dim']
         
         # Map algorithm to CNN variant
         agent_map = {
             'sac': SACAgentCNN,
             'td3': TD3AgentCNN,
-            'ppo': PPOAgentCNN,
-            'sac_cnn': SACAgentCNN,  # Allow explicit _cnn suffix
-            'td3_cnn': TD3AgentCNN,
-            'ppo_cnn': PPOAgentCNN
+            'ppo': PPOAgentCNN
         }
         
-        # Remove _cnn suffix from lookup
-        agent_class = agent_map.get(algo.replace('_cnn', ''), None)
+        # Simple lookup
+        agent_class = agent_map.get(algo.lower(), None)
     else:
         print(f"[AGENT] Creating MLP agent: {algo}")
         
         # All MLP agents need obs_dim
         base_params['obs_dim'] = env.observation_space.shape[0]
         
-        # Standard MLP agents
         agent_map = {
             'sac': SACAgent,
             'td3': TD3Agent,
             'ppo': PPOAgent
         }
-        agent_class = agent_map.get(algo, None)
+        agent_class = agent_map.get(algo.lower(), None)
     
     if agent_class is None:
         raise ValueError(f"[ERROR] Unknown algorithm: {algo}. Available: {list(agent_map.keys())}")
@@ -134,6 +148,21 @@ def create_agent(config: Dict[str, Any], env: gym.Env) -> Any:
         print(f"Parameters: {base_params}")
         raise
 
+def save_model(agent, path, config, eval_score, step):
+    """Helper to save model state"""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    save_dict = {
+        'actor_state_dict': agent.actor.state_dict(),
+        'config': config,
+        'eval_score': eval_score,
+        'step': step
+    }
+    if hasattr(agent, 'critic'):
+        save_dict['critic_state_dict'] = agent.critic.state_dict()
+    
+    torch.save(save_dict, path)
+    print(f"[SAVE] Model saved to {path}")
+
 def train(config: Dict[str, Any]) -> float:
     """Main training function"""
     # Validate config
@@ -143,7 +172,7 @@ def train(config: Dict[str, Any]) -> float:
             raise ValueError(f"Missing required config key: {key}")
     
     # Initialize wandb
-    run_name = f"{config['algo']}-{config['env_id']}-{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    run_name = config.get('run_name')
     wandb.init(
         project="cmps458-assignment4_2",
         entity="ziadhf-cairo-university",
@@ -160,8 +189,13 @@ def train(config: Dict[str, Any]) -> float:
     
     # Environment setup
     use_cnn = config.get('use_cnn', False)
-    env = make_env(config['env_id'], seed=config['seed'], use_cnn=use_cnn)
-    eval_env = make_env(config['env_id'], seed=config['seed']+100, use_cnn=use_cnn)
+    
+    # Training Env (No video recording to save speed)
+    env = make_env(config['env_id'], seed=config['seed'], use_cnn=use_cnn, capture_video=False)
+    
+    # Eval Env (With video recording)
+    eval_env = make_env(config['env_id'], seed=config['seed']+100, use_cnn=use_cnn, 
+                        capture_video=True, run_name=run_name)
     
     print(f"[ENV] Environment: {config['env_id']}")
     print(f"   Obs space: {env.observation_space}")
@@ -177,19 +211,19 @@ def train(config: Dict[str, Any]) -> float:
     episode_length = 0
     best_eval_score = -np.inf
     eval_interval = config['eval_interval']
+    checkpoint_freq = config.get('checkpoint_freq', 100000)
     
     # Enhanced tracking
     episode_count = 0
-    episode_rewards_history = []  # Track recent episode rewards
-    total_train_steps = 0
+    episode_rewards_history = []  
     last_log_step = 0
-    log_freq = 1000  # Log training progress every N steps
+    log_freq = 1000 
     
     # Prefill replay buffer for off-policy agents
     prefill_steps = config.get('learning_starts', 0)
     if prefill_steps > 0 and not isinstance(agent, (PPOAgent, PPOAgentCNN)):
         print(f"[BUFFER] Prefilling buffer ({prefill_steps} steps)...")
-        for _ in range(prefill_steps):
+        while len(agent.replay_buffer) < prefill_steps:
             action = env.action_space.sample()
             next_obs, reward, term, trunc, _ = env.step(action)
             agent.replay_buffer.add(obs, action, reward, next_obs, term or trunc)
@@ -197,6 +231,7 @@ def train(config: Dict[str, Any]) -> float:
             if term or trunc:
                 obs, _ = env.reset()
         print("[OK] Buffer prefilled\n")
+        obs, _ = env.reset() # Reset for actual training
     
     # Main training loop
     for step in range(config['total_steps']):
@@ -216,7 +251,8 @@ def train(config: Dict[str, Any]) -> float:
         episode_reward += reward
         episode_length += 1
         
-        # Training
+        # Training Logic
+        metrics = None
         should_train = False
         if isinstance(agent, (PPOAgent, PPOAgentCNN)):
             should_train = len(agent.buffer.obs) >= config.get('rollout_length', 2048)
@@ -227,30 +263,32 @@ def train(config: Dict[str, Any]) -> float:
             if isinstance(agent, (PPOAgent, PPOAgentCNN)):
                 metrics = agent.train_step()
             else:
-                metrics = None
                 for _ in range(config['gradient_steps']):
                     metrics = agent.train_step()
-                    if metrics:
-                        wandb.log({f'train/{k}': v for k, v in metrics.items()}, step=step)
             
+            # Log training metrics
             if metrics:
                 wandb.log({f'train/{k}': v for k, v in metrics.items()}, step=step)
         
+        # Periodic Checkpointing (New)
+        if step > 0 and step % checkpoint_freq == 0:
+            ckpt_path = f"models/{run_name}/checkpoint_{step}.pth"
+            save_model(agent, ckpt_path, config, best_eval_score, step)
+
         # Episode end
-        if done or episode_length >= config['max_ep_len']:
+        if done or episode_length >= config.get('max_ep_len', 1000):
             episode_count += 1
             episode_rewards_history.append(episode_reward)
-            
-            # Keep only recent 100 episodes for rolling average
             if len(episode_rewards_history) > 100:
                 episode_rewards_history.pop(0)
             
-            # Determine success (environment-specific thresholds)
+            # Reset
+            obs, _ = env.reset()
+            
+            # Determine success
             success = False
-            if 'LunarLander' in config['env_id']:
-                success = episode_reward >= 200  # Solved threshold
-            elif 'CarRacing' in config['env_id']:
-                success = episode_reward >= 900  # Good performance
+            if 'CarRacing' in config['env_id']:
+                success = episode_reward >= 900
             
             wandb.log({
                 'train/episode_reward': episode_reward,
@@ -258,87 +296,60 @@ def train(config: Dict[str, Any]) -> float:
                 'train/episode_count': episode_count,
                 'train/success': int(success),
                 'train/rolling_mean_reward': np.mean(episode_rewards_history),
-                'train/rolling_std_reward': np.std(episode_rewards_history) if len(episode_rewards_history) > 1 else 0,
             }, step=step)
             
-            # Progress logging
+            episode_reward = 0
+            episode_length = 0
+            
+            # Console Progress
             if step - last_log_step >= log_freq:
                 progress = 100 * step / config['total_steps']
                 recent_mean = np.mean(episode_rewards_history[-10:]) if episode_rewards_history else 0
-                print(f"[PROGRESS] Step {step:,}/{config['total_steps']:,} ({progress:.1f}%) | "
-                      f"Episodes: {episode_count} | Recent Avg: {recent_mean:.1f} | Best: {best_eval_score:.1f}")
+                print(f"[PROG] {step:,}/{config['total_steps']:,} ({progress:.1f}%) | "
+                      f"Ep: {episode_count} | R_Avg: {recent_mean:.1f} | Best: {best_eval_score:.1f}")
                 last_log_step = step
             
-            # Evaluation
-            if step % eval_interval == 0 and step > 0:
-                print(f"\n[EVAL] Evaluating at step {step:,}...")
-                eval_results = evaluate(agent, eval_env, n_episodes=config['eval_episodes'])
-                wandb.log({f'eval/{k}': v for k, v in eval_results.items()}, step=step)
-                
-                # Save best model
-                if eval_results['mean'] > best_eval_score:
-                    best_eval_score = eval_results['mean']
-                    print(f"[BEST] New best: {best_eval_score:.2f}")
-                    
-                    # Save locally
-                    save_path = f"models/{run_name}_best.pth"
-                    os.makedirs("models", exist_ok=True)
-                    
-                    save_dict = {
-                        'actor_state_dict': agent.actor.state_dict(),
-                        'config': config,
-                        'eval_score': best_eval_score,
-                        'step': step
-                    }
-                    if hasattr(agent, 'critic'):
-                        save_dict['critic_state_dict'] = agent.critic.state_dict()
-                    
-                    torch.save(save_dict, save_path)
-                    
-                    # Upload to HF Hub
-                    if config['publish_to_hub']:
-                        try:
-                            from huggingface_hub import upload_file
-                            upload_file(
-                                path_or_fileobj=save_path,
-                                path_in_repo="model.pth",
-                                repo_id=config['hf_repo_id'],
-                                commit_message=f"Best model: {best_eval_score:.2f}"
-                            )
-                            print(f"[OK] Uploaded to HF: {config['hf_repo_id']}")
-                        except Exception as e:
-                            print(f"[WARN] HF upload failed: {e} (continuing)")
+        # Evaluation & Best Model Saving
+        if step % eval_interval == 0 and step > 0:
+            print(f"\n[EVAL] Evaluating at step {step:,}...")
+            # This triggers the RecordVideo wrapper in eval_env
+            eval_results = evaluate(agent, eval_env, n_episodes=config['eval_episodes'])
+            wandb.log({f'eval/{k}': v for k, v in eval_results.items()}, step=step)
             
-            obs, _ = env.reset()
-            episode_reward = 0
-            episode_length = 0
+            # Save best model
+            if eval_results['mean'] > best_eval_score:
+                best_eval_score = eval_results['mean']
+                print(f"[BEST] New best score: {best_eval_score:.2f}")
+                
+                # Save locally
+                best_path = f"models/{run_name}/best_model.pth"
+                save_model(agent, best_path, config, best_eval_score, step)
+                
+            obs, _ = env.reset() # Reset training env just in case
+
+    # Final Save
+    final_path = f"models/{run_name}/final_model.pth"
+    save_model(agent, final_path, config, best_eval_score, step)
     
-    # Final summary
     print(f"\n{'='*70}")
     print(f"[DONE] Training Complete!")
-    print(f"{'='*70}")
-    print(f"  Total Steps: {config['total_steps']:,}")
-    print(f"  Total Episodes: {episode_count}")
-    print(f"  Best Eval Score: {best_eval_score:.2f}")
-    if episode_rewards_history:
-        print(f"  Final Rolling Avg (100 ep): {np.mean(episode_rewards_history):.2f}")
+    print(f"  Best Score: {best_eval_score:.2f}")
+    print(f"  Models saved in: models/{run_name}/")
     print(f"{'='*70}\n")
     
     wandb.finish()
+    env.close()
+    eval_env.close()
     return best_eval_score
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Train RL agents for CMPS458 Assignment 4")
+    parser = argparse.ArgumentParser(description="Train RL agents")
     parser.add_argument('--config', type=str, required=True, help="Path to config YAML file")
     args = parser.parse_args()
     
     try:
         with open(args.config, 'r') as f:
             config = yaml.safe_load(f)
-        
-        # Validate config
-        if 'algo' not in config or 'env_id' not in config:
-            raise ValueError("Config must contain 'algo' and 'env_id'")
         
         # Add derived fields
         config['run_name'] = f"{config['algo']}-{config['env_id']}-{datetime.now().strftime('%Y%m%d_%H%M%S')}"
