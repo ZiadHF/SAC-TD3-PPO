@@ -9,6 +9,8 @@ import sys
 from datetime import datetime
 from typing import Dict, Any, Tuple
 
+import random
+
 # Fix Windows encoding issues with emojis
 if sys.platform == 'win32':
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
@@ -17,19 +19,65 @@ if sys.platform == 'win32':
 # Import all agents
 from algorithms import SACAgent, TD3Agent, PPOAgent
 from algorithms import SACAgentCNN, TD3AgentCNN, PPOAgentCNN
-from utils.wrappers import PreprocessCarRacing, FrameStack
+from utils.wrappers import PreprocessCarRacing, FrameStack, RepeatAction
+from gymnasium.wrappers import RecordVideo
 
-def make_env(env_id: str, seed: int = 42, use_cnn: bool = False) -> gym.Env:
-    """Create environment with optional CNN preprocessing"""
-    env = gym.make(env_id, continuous=True)
+def set_seed(seed: int):
+    """Set seed for reproducibility"""
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    print(f"[SEED] Set global seed to {seed}")
+
+def make_env(env_id: str, seed: int = 42, use_cnn: bool = False, render_mode: str = None, video_folder: str = None, video_interval: int = 10) -> gym.Env:
+    """Create environment with optional CNN preprocessing and video recording"""
+    # Increase max_episode_steps for CarRacing to account for frame skipping
+    # Default is 1000. With skip=4, we need 4000 to maintain same duration.
+    max_steps = 4000 if 'CarRacing' in env_id and use_cnn else None
+    
+    if max_steps:
+        env = gym.make(env_id, continuous=True, max_episode_steps=max_steps, render_mode=render_mode)
+    else:
+        env = gym.make(env_id, continuous=True, render_mode=render_mode)
+    
+    # Add video recording if requested
+    if video_folder:
+        env = RecordVideo(
+            env, 
+            video_folder=video_folder,
+            episode_trigger=lambda x: x % video_interval == 0, # Record first episode of every eval batch
+            disable_logger=True
+        )
     
     if use_cnn:
-        print("[IMG] Applying CNN preprocessing (grayscale + frame stack)")
+        print(f"[IMG] Applying CNN preprocessing (grayscale + skip + stack) | Max Steps: {max_steps}")
         env = PreprocessCarRacing(env, resize=(84, 84))
+        env = RepeatAction(env, skip=4)
         env = FrameStack(env, num_stack=4)
     
     env.reset(seed=seed)
     return env
+
+def save_model(agent, config: Dict[str, Any], score: float, step: int, suffix: str = "best") -> str:
+    """Save model checkpoint"""
+    run_name = config.get('run_name', f"{config['algo']}-{config['env_id']}")
+    save_path = f"models/{run_name}_{suffix}.pth"
+    os.makedirs("models", exist_ok=True)
+    
+    save_dict = {
+        'actor_state_dict': agent.actor.state_dict(),
+        'config': config,
+        'eval_score': score,
+        'step': step
+    }
+    if hasattr(agent, 'critic'):
+        save_dict['critic_state_dict'] = agent.critic.state_dict()
+    
+    torch.save(save_dict, save_path)
+    print(f"[{suffix.upper()}] Saved model to {save_path}")
+    return save_path
 
 def evaluate(agent, env: gym.Env, n_episodes: int = 5, max_ep_len: int = 1000) -> Dict[str, float]:
     """Evaluate agent across multiple episodes"""
@@ -145,7 +193,7 @@ def train(config: Dict[str, Any]) -> float:
     # Initialize wandb
     run_name = f"{config['algo']}-{config['env_id']}-{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     wandb.init(
-        project="cmps458-assignment4",
+        project="cmps458-assignment4_3",
         config=config,
         name=run_name,
         tags=[config['algo'], config['env_id']],
@@ -157,10 +205,23 @@ def train(config: Dict[str, Any]) -> float:
     print(f"[START] Training: {run_name}")
     print(f"{'='*70}")
     
+    # Set global seed
+    set_seed(config['seed'])
+    
     # Environment setup
     use_cnn = config.get('use_cnn', False)
     env = make_env(config['env_id'], seed=config['seed'], use_cnn=use_cnn)
-    eval_env = make_env(config['env_id'], seed=config['seed']+100, use_cnn=use_cnn)
+    
+    # Eval env with video recording
+    video_folder = f"videos/{run_name}"
+    eval_env = make_env(
+        config['env_id'], 
+        seed=config['seed']+100, 
+        use_cnn=use_cnn, 
+        render_mode='rgb_array',
+        video_folder=video_folder,
+        video_interval=config['eval_episodes']
+    )
     
     print(f"[ENV] Environment: {config['env_id']}")
     print(f"   Obs space: {env.observation_space}")
@@ -198,80 +259,81 @@ def train(config: Dict[str, Any]) -> float:
         print("[OK] Buffer prefilled\n")
     
     # Main training loop
-    for step in range(config['total_steps']):
-        # Action selection
-        if isinstance(agent, (PPOAgent, PPOAgentCNN)):
-            action, logp, val = agent.select_action(obs, deterministic=False)
-            next_obs, reward, term, trunc, _ = env.step(action)
-            done = term or trunc
-            agent.buffer.store(obs, action, reward, val, logp, done)
-        else:
-            action = agent.select_action(obs, deterministic=False)
-            next_obs, reward, term, trunc, _ = env.step(action)
-            done = term or trunc
-            agent.replay_buffer.add(obs, action, reward, next_obs, done)
-        
-        obs = next_obs
-        episode_reward += reward
-        episode_length += 1
-        
-        # Training
-        should_train = False
-        if isinstance(agent, (PPOAgent, PPOAgentCNN)):
-            should_train = len(agent.buffer.obs) >= config.get('rollout_length', 2048)
-        else:
-            should_train = step > prefill_steps and step % config['train_freq'] == 0
-            
-        if should_train:
+    try:
+        for step in range(config['total_steps']):
+            # Action selection
             if isinstance(agent, (PPOAgent, PPOAgentCNN)):
-                metrics = agent.train_step()
+                action, logp, val = agent.select_action(obs, deterministic=False)
+                next_obs, reward, term, trunc, _ = env.step(action)
+                done = term or trunc
+                agent.buffer.store(obs, action, reward, val, logp, done)
             else:
-                metrics = None
-                for _ in range(config['gradient_steps']):
+                action = agent.select_action(obs, deterministic=False)
+                next_obs, reward, term, trunc, _ = env.step(action)
+                done = term or trunc
+                agent.replay_buffer.add(obs, action, reward, next_obs, done)
+            
+            obs = next_obs
+            episode_reward += reward
+            episode_length += 1
+            
+            # Training
+            should_train = False
+            if isinstance(agent, (PPOAgent, PPOAgentCNN)):
+                should_train = len(agent.buffer.obs) >= config.get('rollout_length', 2048)
+            else:
+                should_train = step > prefill_steps and step % config['train_freq'] == 0
+                
+            if should_train:
+                if isinstance(agent, (PPOAgent, PPOAgentCNN)):
                     metrics = agent.train_step()
-                    if metrics:
-                        wandb.log({f'train/{k}': v for k, v in metrics.items()}, step=step)
+                else:
+                    metrics = None
+                    for _ in range(config['gradient_steps']):
+                        metrics = agent.train_step()
+                        if metrics:
+                            wandb.log({f'train/{k}': v for k, v in metrics.items()}, step=step)
+                
+                if metrics:
+                    wandb.log({f'train/{k}': v for k, v in metrics.items()}, step=step)
             
-            if metrics:
-                wandb.log({f'train/{k}': v for k, v in metrics.items()}, step=step)
-        
-        # Episode end
-        if done or episode_length >= config['max_ep_len']:
-            episode_count += 1
-            episode_rewards_history.append(episode_reward)
-            
-            # Keep only recent 100 episodes for rolling average
-            if len(episode_rewards_history) > 100:
-                episode_rewards_history.pop(0)
-            
-            # Determine success (environment-specific thresholds)
-            success = False
-            if 'LunarLander' in config['env_id']:
-                success = episode_reward >= 200  # Solved threshold
-            elif 'CarRacing' in config['env_id']:
-                success = episode_reward >= 900  # Good performance
-            
-            wandb.log({
-                'train/episode_reward': episode_reward,
-                'train/episode_length': episode_length,
-                'train/episode_count': episode_count,
-                'train/success': int(success),
-                'train/rolling_mean_reward': np.mean(episode_rewards_history),
-                'train/rolling_std_reward': np.std(episode_rewards_history) if len(episode_rewards_history) > 1 else 0,
-            }, step=step)
-            
-            # Progress logging
-            if step - last_log_step >= log_freq:
-                progress = 100 * step / config['total_steps']
-                recent_mean = np.mean(episode_rewards_history[-10:]) if episode_rewards_history else 0
-                print(f"[PROGRESS] Step {step:,}/{config['total_steps']:,} ({progress:.1f}%) | "
-                      f"Episodes: {episode_count} | Recent Avg: {recent_mean:.1f} | Best: {best_eval_score:.1f}")
-                last_log_step = step
+            # Episode end
+            if done or episode_length >= config['max_ep_len']:
+                episode_count += 1
+                episode_rewards_history.append(episode_reward)
+                
+                # Keep only recent 100 episodes for rolling average
+                if len(episode_rewards_history) > 100:
+                    episode_rewards_history.pop(0)
+                
+                # Determine success (environment-specific thresholds)
+                success = False
+                if 'LunarLander' in config['env_id']:
+                    success = episode_reward >= 200  # Solved threshold
+                elif 'CarRacing' in config['env_id']:
+                    success = episode_reward >= 900  # Good performance
+                
+                wandb.log({
+                    'train/episode_reward': episode_reward,
+                    'train/episode_length': episode_length,
+                    'train/episode_count': episode_count,
+                    'train/success': int(success),
+                    'train/rolling_mean_reward': np.mean(episode_rewards_history),
+                    'train/rolling_std_reward': np.std(episode_rewards_history) if len(episode_rewards_history) > 1 else 0,
+                }, step=step)
+                
+                # Progress logging
+                if step - last_log_step >= log_freq:
+                    progress = 100 * step / config['total_steps']
+                    recent_mean = np.mean(episode_rewards_history[-10:]) if episode_rewards_history else 0
+                    print(f"[PROGRESS] Step {step:,}/{config['total_steps']:,} ({progress:.1f}%) | "
+                          f"Episodes: {episode_count} | Recent Avg: {recent_mean:.1f} | Best: {best_eval_score:.1f}")
+                    last_log_step = step
             
             # Evaluation
             if step % eval_interval == 0 and step > 0:
                 print(f"\n[EVAL] Evaluating at step {step:,}...")
-                eval_results = evaluate(agent, eval_env, n_episodes=config['eval_episodes'])
+                eval_results = evaluate(agent, eval_env, n_episodes=config['eval_episodes'], max_ep_len=config['max_ep_len'])
                 wandb.log({f'eval/{k}': v for k, v in eval_results.items()}, step=step)
                 
                 # Save best model
@@ -280,22 +342,10 @@ def train(config: Dict[str, Any]) -> float:
                     print(f"[BEST] New best: {best_eval_score:.2f}")
                     
                     # Save locally
-                    save_path = f"models/{run_name}_best.pth"
-                    os.makedirs("models", exist_ok=True)
-                    
-                    save_dict = {
-                        'actor_state_dict': agent.actor.state_dict(),
-                        'config': config,
-                        'eval_score': best_eval_score,
-                        'step': step
-                    }
-                    if hasattr(agent, 'critic'):
-                        save_dict['critic_state_dict'] = agent.critic.state_dict()
-                    
-                    torch.save(save_dict, save_path)
+                    save_path = save_model(agent, config, best_eval_score, step, suffix="best")
                     
                     # Upload to HF Hub
-                    if config['publish_to_hub']:
+                    if config.get('publish_to_hub', False):
                         try:
                             from huggingface_hub import upload_file
                             upload_file(
@@ -307,24 +357,54 @@ def train(config: Dict[str, Any]) -> float:
                             print(f"[OK] Uploaded to HF: {config['hf_repo_id']}")
                         except Exception as e:
                             print(f"[WARN] HF upload failed: {e} (continuing)")
+                
+                # Save latest checkpoint
+                save_model(agent, config, eval_results['mean'], step, suffix="latest")
+                
+                # Periodic checkpoint (every 5 evals)
+                if (step // eval_interval) % 5 == 0:
+                    save_model(agent, config, eval_results['mean'], step, suffix=f"step_{step}")
             
-            obs, _ = env.reset()
-            episode_reward = 0
-            episode_length = 0
-    
-    # Final summary
-    print(f"\n{'='*70}")
-    print(f"[DONE] Training Complete!")
-    print(f"{'='*70}")
-    print(f"  Total Steps: {config['total_steps']:,}")
-    print(f"  Total Episodes: {episode_count}")
-    print(f"  Best Eval Score: {best_eval_score:.2f}")
-    if episode_rewards_history:
-        print(f"  Final Rolling Avg (100 ep): {np.mean(episode_rewards_history):.2f}")
-    print(f"{'='*70}\n")
-    
-    wandb.finish()
-    return best_eval_score
+            if done or episode_length >= config['max_ep_len']:
+                obs, _ = env.reset()
+                episode_reward = 0
+                episode_length = 0    
+    except KeyboardInterrupt:
+        print("\n[STOP] Training interrupted by user")
+    except Exception as e:
+        print(f"\n[ERROR] Training failed: {e}")
+        import traceback
+        traceback.print_exc()
+        raise e
+    finally:
+        # Final evaluation
+        print("\n[EVAL] Running final evaluation...")
+        try:
+            final_eval = evaluate(agent, eval_env, n_episodes=config['eval_episodes'], max_ep_len=config['max_ep_len'])
+            final_score = final_eval['mean']
+            print(f"[EVAL] Final Score: {final_score:.2f}")
+            wandb.log({f'eval/{k}': v for k, v in final_eval.items()}, step=step if 'step' in locals() else 0)
+        except Exception as e:
+            print(f"[WARN] Final evaluation failed: {e}")
+            final_score = np.mean(episode_rewards_history[-10:]) if episode_rewards_history else 0.0
+
+        # Save final model
+        print("\n[SAVE] Saving final model...")
+        save_model(agent, config, final_score, step if 'step' in locals() else 0, suffix="final")
+        
+        # Final summary
+        print(f"\n{'='*70}")
+        print(f"[DONE] Training Complete/Stopped!")
+        print(f"{'='*70}")
+        print(f"  Total Steps: {step if 'step' in locals() else 0:,}")
+        print(f"  Total Episodes: {episode_count}")
+        print(f"  Best Eval Score: {best_eval_score:.2f}")
+        if episode_rewards_history:
+            print(f"  Final Rolling Avg (100 ep): {np.mean(episode_rewards_history):.2f}")
+        print(f"{'='*70}\n")
+        
+        wandb.finish()
+        return best_eval_score
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train RL agents for CMPS458 Assignment 4")

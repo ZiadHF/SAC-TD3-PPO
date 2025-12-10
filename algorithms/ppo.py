@@ -10,7 +10,7 @@ import numpy as np
 class PPOAgent(BaseAgent):
     def __init__(self, obs_dim, action_dim, lr=3e-4, gamma=0.99, clip_ratio=0.2, 
                  lam=0.95, train_pi_iters=80, train_v_iters=80, target_kl=0.01,
-                 hidden_dims=[64, 64], max_ep_len=1000, device='cuda'):
+                 hidden_dims=[64, 64], max_ep_len=1000, ent_coef=0.0, device='cuda'):
         self.device = device
         self.gamma = gamma
         self.clip_ratio = clip_ratio
@@ -19,6 +19,7 @@ class PPOAgent(BaseAgent):
         self.train_v_iters = train_v_iters
         self.target_kl = target_kl
         self.max_ep_len = max_ep_len
+        self.ent_coef = ent_coef
         
         self.actor = GaussianPolicy(obs_dim, action_dim, hidden_dims).to(device)
         self.critic = MLP(obs_dim, hidden_dims, 1).to(device)
@@ -31,7 +32,7 @@ class PPOAgent(BaseAgent):
     def select_action(self, obs, deterministic=False):
         obs = torch.as_tensor(obs, dtype=torch.float32, device=self.device).unsqueeze(0)
         with torch.no_grad():
-            action, log_prob = self.actor.sample(obs, deterministic)
+            action, log_prob, _ = self.actor.sample(obs, deterministic)
             value = self.critic(obs)
         # log_prob is None when deterministic=True
         if log_prob is None:
@@ -77,11 +78,14 @@ class PPOAgent(BaseAgent):
         kl_divs = []
         
         for i in range(self.train_pi_iters):
-            _, new_logps = self.actor.sample(old_obs)
+            _, new_logps, entropy = self.actor.sample(old_obs)
             ratio = torch.exp(new_logps - old_logps.unsqueeze(1))
             surr1 = ratio * advantages.unsqueeze(1)
             surr2 = torch.clamp(ratio, 1 - self.clip_ratio, 1 + self.clip_ratio) * advantages.unsqueeze(1)
-            actor_loss = -torch.min(surr1, surr2).mean()
+            
+            # Entropy bonus
+            entropy_loss = -entropy.mean()
+            actor_loss = -torch.min(surr1, surr2).mean() + self.ent_coef * entropy_loss
             
             values = self.critic(old_obs).squeeze()
             critic_loss = F.mse_loss(values, returns)
@@ -106,5 +110,6 @@ class PPOAgent(BaseAgent):
             'actor_loss': actor_loss.item(),
             'critic_loss': critic_loss.item(),
             'kl_divergence': np.mean(kl_divs),
-            'training_epochs': i + 1
+            'training_epochs': i + 1,
+            'entropy': entropy.mean().item()
         }

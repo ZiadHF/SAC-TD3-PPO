@@ -15,6 +15,7 @@ class PPOAgentCNN(PPOAgent):
         self.train_v_iters = kwargs['train_v_iters']
         self.target_kl = kwargs['target_kl']
         self.max_ep_len = kwargs['max_ep_len']
+        self.ent_coef = kwargs.get('ent_coef', 0.0)
         
         # Extract only the hidden_dims for networks
         hidden_dims = kwargs.get('hidden_dims', [256, 256])
@@ -41,7 +42,7 @@ class PPOAgentCNN(PPOAgent):
     def select_action(self, obs, deterministic=False):
         obs_tensor = torch.as_tensor(obs, dtype=torch.float32, device=self.device).unsqueeze(0)
         with torch.no_grad():
-            action, log_prob = self.actor.sample(obs_tensor, deterministic)
+            action, log_prob, _ = self.actor.sample(obs_tensor, deterministic)
             value = self.critic(obs_tensor)
         # log_prob is None when deterministic=True
         if log_prob is None:

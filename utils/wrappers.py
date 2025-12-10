@@ -45,3 +45,19 @@ class FrameStack(Wrapper):
 
     def _get_obs(self):
         return np.concatenate(self.frames, axis=-1)
+
+class RepeatAction(gym.Wrapper):
+    def __init__(self, env, skip=4):
+        super().__init__(env)
+        self.skip = skip
+
+    def step(self, action):
+        total_reward = 0.0
+        done = False
+        for _ in range(self.skip):
+            obs, reward, term, trunc, info = self.env.step(action)
+            total_reward += reward
+            done = term or trunc
+            if done:
+                break
+        return obs, total_reward, term, trunc, info
