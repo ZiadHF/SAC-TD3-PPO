@@ -1,0 +1,28 @@
+algo: ppo_cnn
+env_id: CarRacing-v3
+use_cnn: true
+feature_dim: 512
+seed: 42
+device: cuda
+total_steps: 200
+learning_starts: 0
+rollout_length: 128
+train_freq: 128
+gradient_steps: 1
+max_ep_len: 100
+eval_interval: 200
+eval_episodes: 1
+publish_to_hub: false
+hf_repo_id: "ZiadHF/ppo-carracing-cnn"
+
+agent_params:
+  lr: 0.0003
+  gamma: 0.99
+  clip_ratio: 0.2
+  lam: 0.95
+  train_pi_iters: 2
+  train_v_iters: 2
+  target_kl: 0.02
+  ent_coef: 0.01
+  batch_size: 64
+  hidden_dims: [256,256]

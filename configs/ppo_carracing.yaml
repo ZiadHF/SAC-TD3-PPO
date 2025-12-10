@@ -6,24 +6,23 @@ seed: 42
 device: cuda
 total_steps: 3000000
 learning_starts: 0
-rollout_length: 4096
+rollout_length: 4096  # Collects plenty of data
 train_freq: 4096
-gradient_steps: 1
-max_ep_len: 2000
+gradient_steps: 1     # Ignored by PPO, but fine to keep
+max_ep_len: 1000      # CRITICAL: Ensures frequent resets so agent doesn't get stuck
 eval_interval: 50000
-eval_episodes: 3
+eval_episodes: 10
 publish_to_hub: true
 hf_repo_id: "ZiadHF/ppo-carracing-cnn"
 
 agent_params:
-  lr: 0.0003
+  lr: 0.0003          # CHANGED: Back to 3e-4 for faster learning
   gamma: 0.99
   clip_ratio: 0.2
   lam: 0.95
-  train_pi_iters: 15
-  train_v_iters: 15
-  target_kl: 0.02
-  ent_coef: 0.01
-  batch_size: 128
-  hidden_dims: [256, 256]
-  max_ep_len: 1000
+  train_pi_iters: 10  # Low iterations prevents overfitting on one batch
+  train_v_iters: 10
+  target_kl: 0.02     # Slightly higher tolerance allows for faster policy shifts
+  ent_coef: 0.01      # Keeps the agent exploring (turning)
+  batch_size: 256     # High batch size stabilizes the gradient
+  hidden_dims: [256,256]  # OPTIONAL: [256] is faster/lighter than [256, 256] for CNNs
