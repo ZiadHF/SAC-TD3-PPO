@@ -1,13 +1,27 @@
 # Ignore pycache
 __pycache__/
+*.pyc
+*.pyo
+*.pyd
 
 # Ignore virtual environment folders
 venv/
 .venv/
 env/
+.env
 
 # Ignore logs and experiment outputs
 logs/
+models/
+videos/
 
 # Ignore wandb files
 wandb/
+
+# IDEs
+.vscode/
+.idea/
+
+# PyTorch models
+*.pth
+*.pt

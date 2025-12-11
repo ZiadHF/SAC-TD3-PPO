@@ -38,7 +38,7 @@ class GaussianPolicy(nn.Module):
         std = log_std.exp()
         
         if deterministic:
-            return torch.tanh(mean), None
+            return torch.tanh(mean), None, None
         
         normal = torch.distributions.Normal(mean, std)
         x_t = normal.rsample()
@@ -46,8 +46,28 @@ class GaussianPolicy(nn.Module):
         log_prob = normal.log_prob(x_t)
         log_prob -= torch.log(1 - action.pow(2) + 1e-6)
         log_prob = log_prob.sum(dim=-1, keepdim=True)
+        entropy = normal.entropy().sum(dim=-1)
         
-        return action, log_prob
+        return action, log_prob, entropy
+
+    def evaluate_actions(self, obs, actions):
+        mean, log_std = self.forward(obs)
+        std = log_std.exp()
+        normal = torch.distributions.Normal(mean, std)
+        
+        # Invert tanh to get x_t
+        # x_t = atanh(actions)
+        # Clamp actions to avoid nan in atanh
+        actions = torch.clamp(actions, -0.999999, 0.999999)
+        x_t = 0.5 * (torch.log(1 + actions) - torch.log(1 - actions))
+        
+        log_prob = normal.log_prob(x_t)
+        # Tanh correction
+        log_prob -= torch.log(1 - actions.pow(2) + 1e-6)
+        log_prob = log_prob.sum(dim=-1, keepdim=True)
+        entropy = normal.entropy().sum(dim=-1)
+        
+        return log_prob, entropy
 
 class Critic(nn.Module):
     def __init__(self, obs_dim, action_dim, hidden_dims=[256, 256]):
@@ -97,8 +117,12 @@ class NatureCNN(nn.Module):
         self.feature_dim = feature_dim
 
     def forward(self, x):
-        if len(x.shape) == 4:  # (B, H, W, C) -> (B, C, H, W)
-            x = x.permute(0, 3, 1, 2).contiguous()
+        # Check if input is (B, H, W, C) and needs permutation to (B, C, H, W)
+        # We use self.input_shape[0] which stores the expected channel count
+        if len(x.shape) == 4:
+            if x.shape[1] != self.input_shape[0] and x.shape[-1] == self.input_shape[0]:
+                x = x.permute(0, 3, 1, 2).contiguous()
+        
         x = F.relu(self.conv1(x))
         x = F.relu(self.conv2(x))
         x = F.relu(self.conv3(x))
@@ -126,7 +150,7 @@ class ConvGaussianPolicy(nn.Module):
         std = log_std.exp()
         
         if deterministic:
-            return torch.tanh(mean), None
+            return torch.tanh(mean), None, None
         
         normal = torch.distributions.Normal(mean, std)
         x_t = normal.rsample()
@@ -134,8 +158,25 @@ class ConvGaussianPolicy(nn.Module):
         log_prob = normal.log_prob(x_t)
         log_prob -= torch.log(1 - action.pow(2) + 1e-6)
         log_prob = log_prob.sum(dim=-1, keepdim=True)
+        entropy = normal.entropy().sum(dim=-1)
         
-        return action, log_prob
+        return action, log_prob, entropy
+
+    def evaluate_actions(self, obs, actions):
+        mean, log_std = self.forward(obs)
+        std = log_std.exp()
+        normal = torch.distributions.Normal(mean, std)
+        
+        # Invert tanh to get x_t
+        actions = torch.clamp(actions, -0.999999, 0.999999)
+        x_t = 0.5 * (torch.log(1 + actions) - torch.log(1 - actions))
+        
+        log_prob = normal.log_prob(x_t)
+        log_prob -= torch.log(1 - actions.pow(2) + 1e-6)
+        log_prob = log_prob.sum(dim=-1, keepdim=True)
+        entropy = normal.entropy().sum(dim=-1)
+        
+        return log_prob, entropy
 
 class ConvCritic(nn.Module):
     def __init__(self, obs_shape, action_dim, feature_dim=512, hidden_dims=[256, 256]):

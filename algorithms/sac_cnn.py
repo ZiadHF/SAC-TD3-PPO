@@ -38,5 +38,5 @@ class SACAgentCNN(SACAgent):
         # obs: (H, W, C) -> add batch dim
         obs_tensor = torch.as_tensor(obs, dtype=torch.float32, device=self.device).unsqueeze(0)
         with torch.no_grad():
-            action, _ = self.actor.sample(obs_tensor, deterministic)
+            action, _, _ = self.actor.sample(obs_tensor, deterministic)
         return action.cpu().numpy()[0]

@@ -49,9 +49,14 @@ class TD3AgentCNN(TD3Agent):
         self.train_steps = 0
 
     def select_action(self, obs, deterministic=False):
+        # obs: (H, W, C) -> add batch dim
         obs_tensor = torch.as_tensor(obs, dtype=torch.float32, device=self.device).unsqueeze(0)
         with torch.no_grad():
             action = self.actor(obs_tensor).cpu().numpy()[0]
         if not deterministic:
-            action += np.random.normal(0, self.exploration_noise, size=action.shape)
+            noise = np.random.normal(0, self.exploration_noise, size=action.shape)
+            # CarRacing Hack: Bias the gas action (index 1) to ensure the car moves during exploration
+            if action.shape[0] == 3: 
+                noise[1] += 0.5 
+            action += noise
         return np.clip(action, -1.0, 1.0)

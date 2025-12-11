@@ -37,7 +37,7 @@ class SACAgent(BaseAgent):
     def select_action(self, obs, deterministic=False):
         obs = torch.as_tensor(obs, dtype=torch.float32, device=self.device).unsqueeze(0)
         with torch.no_grad():
-            action, _ = self.actor.sample(obs, deterministic)
+            action, _, _ = self.actor.sample(obs, deterministic)
         return action.cpu().numpy()[0]
 
     def train_step(self):
@@ -47,7 +47,7 @@ class SACAgent(BaseAgent):
         batch = self.replay_buffer.sample(self.batch_size, self.device)
         
         with torch.no_grad():
-            next_action, next_log_prob = self.actor.sample(batch['next_obs'])
+            next_action, next_log_prob, _ = self.actor.sample(batch['next_obs'])
             min_q_next = self.critic_target.min_q(batch['next_obs'], next_action)
             q_target = batch['rewards'].unsqueeze(1) + (1 - batch['dones'].unsqueeze(1)) * self.gamma * (min_q_next - self.alpha * next_log_prob)
         
@@ -59,7 +59,7 @@ class SACAgent(BaseAgent):
         nn.utils.clip_grad_norm_(self.critic.parameters(), max_norm=0.5)
         self.critic_optim.step()
         
-        action_pred, log_prob = self.actor.sample(batch['obs'])
+        action_pred, log_prob, _ = self.actor.sample(batch['obs'])
         q_new = self.critic.min_q(batch['obs'], action_pred)
         actor_loss = (self.alpha * log_prob - q_new).mean()
         

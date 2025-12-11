@@ -22,16 +22,16 @@ import traceback
 
 YOUR_HF_USERNAME = "ZiadHF" 
 HF_TOKEN = os.getenv("HF_TOKEN")
-WANDB_PROJECT = "cmps458-assignment4_2"
+WANDB_PROJECT = "cmps458-assignment4_3"
 
 # All experiments to run
 EXPERIMENTS = [
-    {"algo": "sac", "env": "LunarLander-v3", "config": "configs/sac_lunarlander.yaml", "priority": 1},
-    {"algo": "td3", "env": "LunarLander-v3", "config": "configs/td3_lunarlander.yaml", "priority": 2},
+    # {"algo": "sac", "env": "LunarLander-v3", "config": "configs/sac_lunarlander.yaml", "priority": 1},
+    # {"algo": "td3", "env": "LunarLander-v3", "config": "configs/td3_lunarlander.yaml", "priority": 2},
     {"algo": "ppo", "env": "LunarLander-v3", "config": "configs/ppo_lunarlander.yaml", "priority": 3},
-    {"algo": "sac_cnn", "env": "CarRacing-v3", "config": "configs/sac_carracing.yaml", "priority": 4},
-    {"algo": "td3_cnn", "env": "CarRacing-v3", "config": "configs/td3_carracing.yaml", "priority": 5},
-    {"algo": "ppo_cnn", "env": "CarRacing-v3", "config": "configs/ppo_carracing.yaml", "priority": 6},
+    # {"algo": "sac_cnn", "env": "CarRacing-v3", "config": "configs/sac_carracing.yaml", "priority": 4},
+    # {"algo": "td3_cnn", "env": "CarRacing-v3", "config": "configs/td3_carracing.yaml", "priority": 5},
+    # {"algo": "ppo_cnn", "env": "CarRacing-v3", "config": "configs/ppo_carracing.yaml", "priority": 6},
 ]
 
 # ==================== SETUP VALIDATION ====================
@@ -55,21 +55,19 @@ def check_environment():
             print("⚠️  GPU memory < 8GB - may need to reduce batch_size")
     else:
         print("⚠️  No GPU detected - training will be very slow")
-        response = input("Continue anyway? (y/n): ")
-        if response.lower() != 'y':
-            return False
+        # Removed interactive check for automation
     
     # Check disk space
     free_gb = shutil.disk_usage(".").free // (1024**3)
     print(f"💾 Free disk space: {free_gb}GB")
-    if free_gb < 20:
+    if free_gb < 5:
         print("⚠️  Low disk space - may run out during training")
-        return False
     
     # Check HF token
     if not HF_TOKEN:
-        print("❌ HF_TOKEN not set. Run: export HF_TOKEN='hf_...'")
-        return False
+        print("⚠️  HF_TOKEN not set. Models will not be uploaded to Hugging Face.")
+    else:
+        print("✅ HF_TOKEN found")
     
     # Check wandb - either env var or logged in via wandb login
     wandb_key = os.getenv("WANDB_API_KEY")
