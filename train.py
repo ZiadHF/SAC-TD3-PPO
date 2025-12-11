@@ -217,9 +217,9 @@ def train(config: Dict[str, Any], checkpoint_path: str = None) -> float:
     # Initialize wandb
     run_name = f"{config['algo']}-{config['env_id']}-{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     wandb.init(
-        project="cmps458-assignment4_3",
+        project="PROJECT_NAME",  # <-- Replace with your W&B project name
         config=config,
-        entity="ziadhf-cairo-university",
+        entity="ENTITY_NAME",  # <-- Replace with your W&B entity name
         name=run_name,
         tags=[config['algo'], config['env_id']],
         monitor_gym=True,

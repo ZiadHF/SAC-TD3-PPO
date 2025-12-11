@@ -12,7 +12,7 @@ max_ep_len: 1000
 eval_interval: 25000
 eval_episodes: 5
 publish_to_hub: true
-hf_repo_id: "ZiadHF/sac-carracing-cnn_2"
+hf_repo_id: "USERNAME/sac-carracing-cnn_2"
 
 agent_params:
   lr: 0.0001
