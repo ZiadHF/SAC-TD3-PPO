@@ -11,7 +11,7 @@ max_ep_len: 1000
 eval_interval: 10000
 eval_episodes: 10
 publish_to_hub: true # Set to true and add HF_TOKEN env var to enable HuggingFace uploads
-hf_repo_id: "ZiadHF/td3-lunarlander-v3"
+hf_repo_id: "USERNAME/td3-lunarlander-v3"
 
 agent_params:
   lr: 0.0003

@@ -1,7 +1,7 @@
 from huggingface_hub import create_repo
 import os
 
-USERNAME = "ZiadHF"  # CHANGE THIS
+USERNAME = "USERNAME"  # CHANGE THIS
 REPOS = [
     f"{USERNAME}/sac-lunarlander-v3",
     f"{USERNAME}/td3-lunarlander-v3",
